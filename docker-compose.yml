@@ -1,5 +1,6 @@
 services:
   postgres:
+    networks: [app-network]
     image: postgres:17
     restart: unless-stopped
     environment:
@@ -17,6 +18,7 @@ services:
       retries: 20
 
   redis:
+    networks: [app-network]
     image: redis:7-alpine
     restart: unless-stopped
     ports:
@@ -28,6 +30,7 @@ services:
       retries: 20
 
   api:
+    networks: [app-network]
     build:
       context: ./apps/api
       dockerfile: Dockerfile
@@ -51,6 +54,7 @@ services:
       start_period: 15s
 
   demo:
+    networks: [app-network]
     build:
       context: ./apps/demo
       dockerfile: Dockerfile
@@ -67,6 +71,7 @@ services:
       start_period: 10s
 
   sandbox-base:
+    networks: [sandbox-network]
     image: ai-sre-sandbox-base:latest
     build:
       context: ./sandbox/executor
@@ -75,6 +80,7 @@ services:
     restart: unless-stopped
 
   sandbox-runner:
+    networks: [sandbox-network]
     build:
       context: ./sandbox/runner
       dockerfile: Dockerfile
@@ -94,6 +100,7 @@ services:
       start_period: 10s
 
   worker:
+    networks: [app-network, sandbox-network]
     build:
       context: ./apps/worker
       dockerfile: Dockerfile
@@ -134,6 +141,7 @@ services:
         condition: service_healthy
 
   detector:
+    networks: [app-network]
     build:
       context: ./apps/detector
       dockerfile: Dockerfile
@@ -152,3 +160,10 @@ services:
 volumes:
   postgres_data:
   demo_logs:
+
+networks:
+  app-network:
+    driver: bridge
+  sandbox-network:
+    driver: bridge
+    internal: true

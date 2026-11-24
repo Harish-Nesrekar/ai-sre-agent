@@ -6,7 +6,6 @@ import time
 import requests
 from prometheus_client.parser import text_string_to_metric_families
 
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s"
@@ -18,6 +17,7 @@ METRICS_URL = os.getenv(
     "DEMO_METRICS_URL",
     "http://demo:8000/metrics"
 )
+
 INCIDENT_API_URL = os.getenv(
     "INCIDENT_API_URL",
     "http://api:8000/incidents"
@@ -27,6 +27,9 @@ POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "5"))
 SLOW_THRESHOLD = float(
     os.getenv("SLOW_REQUEST_THRESHOLD_SECONDS", "2")
 )
+
+pending_incidents = []
+
 
 
 def collect_metrics():
@@ -70,10 +73,12 @@ def collect_metrics():
 
 
 def report_incident(incident_type, **details):
+    detected_at = time.time()
+
     incident = {
         "event": "incident_detected",
         "incident_type": incident_type,
-        "detected_at": time.time(),
+        "detected_at": detected_at,
         **details
     }
 
@@ -87,25 +92,35 @@ def report_incident(incident_type, **details):
         "details": {
             **details,
             "source": "incident-detector",
-            "detected_at": incident["detected_at"]
+            "detected_at": detected_at
         }
     }
 
-    try:
-        response = requests.post(
-            INCIDENT_API_URL,
-            json=payload,
-            timeout=5
-        )
-        response.raise_for_status()
+    pending_incidents.append(payload)
+    logger.info("Incident queued for delivery: %s", incident_type)
 
-        logger.info(
-            "Incident successfully stored in API: %s",
-            response.json().get("id")
-        )
 
-    except requests.RequestException:
-        logger.exception("Failed to send incident to API")
+def deliver_pending_incidents():
+    for incident in pending_incidents.copy():
+        try:
+            response = requests.post(
+                INCIDENT_API_URL,
+                json=incident,
+                timeout=5
+            )
+            response.raise_for_status()
+
+            logger.info(
+                "Incident successfully stored in API: %s",
+                response.json().get("id")
+            )
+
+            pending_incidents.remove(incident)
+
+        except (requests.RequestException, ValueError):
+            logger.exception(
+                "Failed to send incident to API; keeping it queued"
+            )
 
 
 def detect_changes(previous, current):
@@ -134,28 +149,28 @@ def detect_changes(previous, current):
                 new_errors=increase
             )
 
-    for endpoint, current_data in current["latency"].items():
-        previous_data = previous["latency"].get(
-            endpoint,
-            {"sum": 0, "count": 0}
-        )
+            for endpoint, current_data in current["latency"].items():
+                previous_data = previous["latency"].get(
+                    endpoint,
+                    {"sum": 0, "count": 0}
+                )
 
-        new_count = current_data["count"] - previous_data["count"]
-        new_sum = current_data["sum"] - previous_data["sum"]
+                new_count = current_data["count"] - previous_data["count"]
+                new_sum = current_data["sum"] - previous_data["sum"]
 
-        if new_count <= 0:
-            continue
+                if new_count <= 0:
+                    continue
 
-        average_duration = new_sum / new_count
+                average_duration = new_sum / new_count
 
-        if average_duration > SLOW_THRESHOLD:
-            report_incident(
-                "slow_request",
-                endpoint=endpoint,
-                average_duration_seconds=round(average_duration, 3),
-                threshold_seconds=SLOW_THRESHOLD,
-                new_requests=new_count
-            )
+                if average_duration > SLOW_THRESHOLD:
+                    report_incident(
+                        "slow_request",
+                        endpoint=endpoint,
+                        average_duration_seconds=round(average_duration, 3),
+                        threshold_seconds=SLOW_THRESHOLD,
+                        new_requests=new_count
+                    )
 
 
 def main():
@@ -176,13 +191,16 @@ def main():
                 detect_changes(previous_snapshot, current_snapshot)
                 previous_snapshot = current_snapshot
 
+                deliver_pending_incidents()
+
         except requests.RequestException:
             logger.exception("Could not reach demo metrics endpoint")
 
         except Exception:
             logger.exception("Unexpected detector error")
 
-        time.sleep(POLL_INTERVAL)
+        finally:
+            time.sleep(POLL_INTERVAL)
 
 
 if __name__ == "__main__":

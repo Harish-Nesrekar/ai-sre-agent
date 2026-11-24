@@ -1,73 +1,52 @@
+# AI SRE Agent — Project Specification
 
-# AI SRE Agent
+## Objective
 
-## 1. Project Overview
+Demonstrate an AI-assisted reliability workflow that detects a service incident, gathers evidence, investigates it, generates a constrained reproduction test, verifies a proposed patch in a disposable sandbox, and requests human review through a GitHub pull request.
 
-AI SRE Agent is an autonomous AI-powered Site Reliability Engineering platform that detects application failures, investigates root causes, generates code fixes, verifies patches, and creates GitHub pull requests for human approval.
+## Architecture
 
-## 2. Problem Statement
+- FastAPI API service
+- PostgreSQL persistence for incidents, tasks and investigations
+- Redis active queue, processing queue and delayed retry sorted set
+- FastAPI demo application with intentional failure routes
+- Metrics-polling incident detector
+- Python worker using Google Gemini
+- Read-only Git/repository inspection
+- Docker sandbox runner and disposable test containers
+- GitHub REST API integration for branch and pull-request creation
+- Optional staging health verification
+- Evaluation summary endpoint
 
-Small engineering teams often lack dedicated SRE engineers. Diagnosing production failures, identifying root causes, and implementing fixes consumes significant engineering time.
+## Incident workflow
 
-Our platform automates this workflow while keeping humans in control of code changes.
+1. Demo service exports counters, histograms and structured JSON logs.
+2. Detector observes new error/slow-request metric deltas.
+3. API persists an incident and investigation task.
+4. Worker claims the task into a processing list.
+5. Worker collects incident, logs, metrics and repository context.
+6. Gemini returns structured root-cause analysis and a constrained reproduction test.
+7. Worker validates the test AST and runs it in the sandbox.
+8. For a reproduced HTTP 4xx/5xx demo incident, Gemini proposes a replacement demo source file and a status-200 verification test.
+9. Worker validates and executes the patch test in the sandbox.
+10. Only a passing patch test can trigger GitHub branch and PR creation.
+11. A human reviews and merges the PR.
+12. After staging deployment, a separate task checks `STAGING_BASE_URL/health`.
 
-## 3. Architecture
+## Human control and safety
 
-- API: FastAPI
-- Worker: Python
-- Database: PostgreSQL
-- Queue: Redis
-- Monitoring: Prometheus
-- AI: Google Gemini API
-- Testing: pytest and Keploy
-- Automation: n8n
-- Deployment: Docker Compose
-- Version control: GitHub API
+- Pull requests are created for review; they are never auto-approved or merged.
+- The agent does not deploy code.
+- Staging verification is a health check only.
+- Repository inspection is read-only.
+- Sandbox execution has no network and applies resource limits.
+- Docker socket access remains a high-privilege trust boundary; runner must remain internal.
+- Root-cause accuracy is not reported without labelled ground truth.
 
-## 4. Failure Scenarios
+## Supported scope
 
-1. Bad commit bug
-2. Wrong configuration
-3. Missing database index
-4. Database connection leak
-5. Memory leak
-6. Third-party API timeout
-7. Bad deployment
-8. Dependency version bump
+Automated patch generation targets reproducible HTTP 4xx/5xx failures on the demo service and updates only `apps/demo/main.py`. Other incidents can be detected and investigated, but patch generation may be reported as unsupported.
 
-## 5. Agent Workflow
+## Evaluation
 
-1. Detect application failure.
-2. Create an incident.
-3. Collect logs and metrics.
-4. Inspect Git history and source code.
-5. Identify probable root cause.
-6. Generate a reproduction test.
-7. Generate a code patch.
-8. Run tests in an isolated Docker environment.
-9. Create a GitHub pull request.
-10. Wait for human approval.
-11. Deploy to staging.
-12. Verify recovery.
-
-## 6. Safety
-
-- No automatic merging.
-- No access to application secrets.
-- Isolated test execution.
-- Limited agent tool permissions.
-- Maximum execution steps and cost per incident.
-- Human approval before deployment.
-
-## 7. Success Metrics
-
-- Incident detection time
-- Root-cause accuracy
-- Time to verified fix
-- Fix success rate
-- Cost per incident
-- Human intervention rate
-
-## 8. Initial MVP
-
-The first milestone is reproducing four failures reliably and observing them through structured logs and metrics.
+The API reports incident count, completed investigations, reproduction tests passed, patches verified, GitHub PRs created, and completed/failed tasks. Root-cause accuracy and time-to-fix require a labelled evaluation set and timestamped runs; they must not be fabricated.

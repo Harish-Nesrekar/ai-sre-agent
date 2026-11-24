@@ -36,6 +36,7 @@ TASK_MAX_ATTEMPTS = max(1, min(int(os.getenv("TASK_MAX_ATTEMPTS", "3")), 8))
 TASK_RETRY_BASE_SECONDS = max(1, int(os.getenv("TASK_RETRY_BASE_SECONDS", "15")))
 DEMO_METRICS_URL = os.getenv("DEMO_METRICS_URL", "http://demo:8000/metrics")
 SANDBOX_URL = os.getenv("SANDBOX_URL", "http://sandbox-runner:9000")
+SANDBOX_RUNNER_TOKEN = os.getenv("SANDBOX_RUNNER_TOKEN", "").strip()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY", "").strip()
 STAGING_BASE_URL = os.getenv("STAGING_BASE_URL", "").strip().rstrip("/")
@@ -345,11 +346,17 @@ def validate_reproduction_test(
 
 
 def call_sandbox(files):
+    if not SANDBOX_RUNNER_TOKEN:
+        raise RuntimeError("SANDBOX_RUNNER_TOKEN is not configured")
+
     payload = json.dumps({"files": files}).encode("utf-8")
     request = urllib.request.Request(
         SANDBOX_URL.rstrip("/") + "/run",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {SANDBOX_RUNNER_TOKEN}",
+        },
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=65) as response:

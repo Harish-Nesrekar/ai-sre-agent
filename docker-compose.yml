@@ -87,6 +87,7 @@ services:
     restart: unless-stopped
     environment:
       SANDBOX_IMAGE: ai-sre-sandbox-base:latest
+      SANDBOX_RUNNER_TOKEN: ${SANDBOX_RUNNER_TOKEN:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -124,6 +125,7 @@ services:
       TASK_RETRY_BASE_SECONDS: ${TASK_RETRY_BASE_SECONDS:-15}
       DEMO_METRICS_URL: http://demo:8000/metrics
       SANDBOX_URL: http://sandbox-runner:9000
+      SANDBOX_RUNNER_TOKEN: ${SANDBOX_RUNNER_TOKEN:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-}
       STAGING_BASE_URL: ${STAGING_BASE_URL:-}

@@ -1,13 +1,14 @@
 import io
 import os
 import re
+import hmac
 import subprocess
 import tarfile
 import logging
 from pathlib import PurePosixPath
 
 import docker
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +20,8 @@ SANDBOX_IMAGE = os.getenv(
     "SANDBOX_IMAGE",
     "ai-sre-sandbox-base:latest"
 )
+
+SANDBOX_RUNNER_TOKEN = os.getenv("SANDBOX_RUNNER_TOKEN", "").strip()
 
 MAX_FILES = 10
 MAX_FILE_SIZE = 100_000
@@ -129,8 +132,36 @@ def health():
         )
 
 
+def authenticate_runner_request(authorization: str | None):
+    if not SANDBOX_RUNNER_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="Sandbox runner authentication is not configured",
+        )
+
+    scheme, separator, supplied_token = (authorization or "").partition(" ")
+
+    supplied_token_bytes = supplied_token.strip().encode("utf-8")
+    expected_token_bytes = SANDBOX_RUNNER_TOKEN.encode("utf-8")
+
+    if (
+        not separator
+        or scheme.lower() != "bearer"
+        or not hmac.compare_digest(supplied_token_bytes, expected_token_bytes)
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing sandbox runner token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 @app.post("/run")
-def run_tests(request: SandboxRequest):
+def run_tests(
+    request: SandboxRequest,
+    authorization: str | None = Header(default=None),
+):
+    authenticate_runner_request(authorization)
     container = None
 
     try:
